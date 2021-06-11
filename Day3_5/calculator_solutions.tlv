@@ -1,3 +1,32 @@
 \m4_TLV_version 1d: tl-x.org
 \SV
-//Calculator labs solutions here
+
+   // =========================================
+   // Welcome!  Try the tutorials via the menu.
+   // =========================================
+   m4_include_lib(['https://raw.githubusercontent.com/stevehoover/RISC-V_MYTH_Workshop/bd1f186fde018ff9e3fd80597b7397a1c862cf15/tlv_lib/calculator_shell_lib.tlv'])
+   // Default Makerchip TL-Verilog Code Template
+   
+   // Macro providing required top-level module definition, random
+   // stimulus support, and Verilator config.
+   m4_makerchip_module   // (Expanded in Nav-TLV pane.)
+\TLV
+   $reset = *reset;
+   $val1[31:0] = $rand1[3:0];
+   $val2[31:0] = $rand2[3:0];
+   $op[1:0] = $rand3[1:0];
+   
+   //($op[1:0] == 2'b00)
+   //$out[3:0] = $sel1 ? $inp1[7:0] : $inp2[7:0];//[3:0] + $in2[3:0];
+   $sum[31:0] = $val1[31:0] + $val2[31:0];
+   $diff[31:0] = $val1[31:0] - $val2[31:0];
+   $prod[31:0] = $val1[31:0] * $val2[31:0];
+   $quot[31:0] = $val1[31:0] / $val2[31:0];
+    
+   $out[31:0] = ($op[1:0] == 2'b00) ? $sum[31:0] : (($op[1:0] == 2'b01) ? $diff[31:0] : (($op[1:0] == 2'b10) ? $prod[31:0] :$quot[31:0]));
+               
+   // Assert these to end simulation (before Makerchip cycle limit).
+   *passed = *cyc_cnt > 40;
+   *failed = 1'b0;
+\SV
+   endmodule
