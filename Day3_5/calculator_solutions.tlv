@@ -11,6 +11,9 @@
    // stimulus support, and Verilator config.
    m4_makerchip_module   // (Expanded in Nav-TLV pane.)
 \TLV
+   //Link to the Makerchip Sandbox
+   //http://makerchip.com/sandbox/0kRfnh0k2/0mwhpYL
+   
    |calc
       @1
          //Reset Signal.
@@ -25,6 +28,15 @@
          $prod[31:0] = $val1[31:0] * $val2[31:0];
          $quot[31:0] = $val1[31:0] / $val2[31:0];
          
+         //Output is again fed back to value1
+         $val1[31:0] = ( >>2$out[31:0] );
+         
+         //Valid Bit Circuit:
+         //If reset is set counter, starts counting from 1, from next cycle.
+         $valid = $reset ? 0 : (1 + (>>1$valid));
+         
+      @2
+         //MUX Circuit:
          //Output is selected as Add, Difference, Multiply, Divide on the basis
          //of select lines. If reset is set, output is 0.
          //if reset = 1, output = 0
@@ -32,15 +44,9 @@
          //if op = 1, difference operation
          //if op = 2, Mutiply operation
          //if op = 3, Divide operation
-         $out[31:0] = $reset ? 0 : (($op[1:0] == 2'b00) ? $sum[31:0] : (($op[1:0] == 2'b01) ? $diff[31:0] : (($op[1:0] == 2'b10) ? $prod[31:0] :$quot[31:0])));
+         //Valid bit and Reset Circuit: ($reset || (!$valid))
+         $out[31:0] = ($reset || (!$valid)) ? 0 : (($op[1:0] == 2'b00) ? $sum[31:0] : (($op[1:0] == 2'b01) ? $diff[31:0] : (($op[1:0] == 2'b10) ? $prod[31:0] :$quot[31:0])));
          
-         //Output is again fed back to value1
-         $val1[31:0] = ( >>1$out[31:0] );
-         
-         //Counter circuit.
-         //If reset is set counter, starts counting from 1, from next cycle.
-         $cnt = $reset ? 0 : $cntr;
-         $cntr = 1 + (>>1$cnt);
          
    // Assert these to end simulation (before Makerchip cycle limit).
    *passed = *cyc_cnt > 40;
