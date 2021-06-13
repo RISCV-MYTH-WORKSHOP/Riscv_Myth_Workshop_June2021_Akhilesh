@@ -40,10 +40,13 @@
    |cpu
       @0
          $reset = *reset;
-         $pc[31:0] = (>>1$reset) ? 0 : (>>1$pc + 4);
+         
          
          
       @1
+         $pc[31:0] = (>>1$reset) ? 0 :
+                     (>>1$taken_br) ? >>1$br_tgt_pc[31:0] : (>>1$pc + 4);
+         
          $imem_rd_addr[M4_IMEM_INDEX_CNT-1:0] = $pc[M4_IMEM_INDEX_CNT+1:2];
          $imem_rd_en = !$reset;
          $instr[31:0] = $imem_rd_data[31:0];
@@ -94,6 +97,9 @@
          
          $dec_bits[10:0] = {$funct7[5],$funct3,$opcode};
          
+         $result[31:0] = $is_addi ? $src1_value + $imm :
+                         $is_add ? $src1_value + $src2_value : 32'bx;
+                         
          //Register file configuration: Outputs
          $src1_value[31:0] = $rf_rd_data1;
          $src2_value[31:0] = $rf_rd_data2;
@@ -103,6 +109,12 @@
          $rf_rd_en2 = $rs2_valid;
          $rf_rd_index1[4:0] = $rs1;
          $rf_rd_index2[4:0] = $rs2;
+         $rf_wr_en = ($rd == 5'b0) ? 1'b0 : $rd_valid;
+         ?$rf_wr_en
+            $rf_wr_index[4:0] = $rd[4:0];
+         
+         $rf_wr_data[31:0] = $result[31:0];
+         
          
          //Decoding opcode,function different Inst
          $is_beq = $dec_bits ==? 11'bx_000_1100011;
@@ -123,13 +135,10 @@
                      ($is_bltu && ($src1_value < $src2_value)) ||
                      ($is_bgeu && ($src1_value >= $src2_value))):1'b0 ;
          
-
          $br_tgt_pc[31:0] = $pc[31:0] + $imm[31:0];
          
          //$pc = $taken_br ? $br_tgt_pc : (>>1$pc + 4);
-         
-         $result[31:0] = $is_addi ? $src1_value + $imm :
-                         $is_add ? $src1_value + $src2_value : 32'bx;
+
          
 
       // Note: Because of the magic we are using for visualisation, if visualisation is enabled below,
