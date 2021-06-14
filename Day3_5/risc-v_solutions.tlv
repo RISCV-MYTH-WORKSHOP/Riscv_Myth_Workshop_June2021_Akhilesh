@@ -41,13 +41,13 @@
       @0
          $reset = *reset;
          $start = (>>1$reset == 1'b1 ) && ($reset == 1'b0);
-         $valid = $reset ? 1'b0 : $start ? 1'b1 : >>3$valid;         
+         //Valid logic is removed as register bypass is enabled.
+         //$valid = $reset ? 1'b0 : $start ? 1'b1 : >>3$valid;         
          
          $pc[31:0] = (>>1$reset) ? 0 :
-                     (>>3$valid_taken_br) ? >>3$br_tgt_pc[31:0] : (>>3$pc + 4);
+                     (>>3$taken_br) ? >>3$br_tgt_pc[31:0] : >>1$inc_pc;
       @1
-         $inc_pc = (>>1$pc + 4);
-         
+         $inc_pc[31:0] = ($pc + 4);
          
          $imem_rd_addr[M4_IMEM_INDEX_CNT-1:0] = $pc[M4_IMEM_INDEX_CNT+1:2];
          $imem_rd_en = !$reset;
@@ -104,11 +104,12 @@
          //Register file Read configuration: Inputs
          $rf_rd_en1 = $rs1_valid;
          $rf_rd_en2 = $rs2_valid;
-         $rf_rd_index1[4:0] = (>>2$rd == $rs1) ? >>2$rd : $rs1;
-         $rf_rd_index2[4:0] = (>>2$rd == $rs2) ? >>2$rd : $rs2;
          
-         //$rf_rd_index1[4:0] = $rs1;
-         //$rf_rd_index2[4:0] = $rs2;
+         //$rf_rd_index1[4:0] = (>>2$rd == $rs1) ? $rd : $rs1;
+         //$rf_rd_index2[4:0] = (>>2$rd == $rs2) ? $rd : $rs2;
+         
+         $rf_rd_index1[4:0] = $rs1;
+         $rf_rd_index2[4:0] = $rs2;
          
          //Decoding opcode,function different Inst
          $is_beq = $dec_bits ==? 11'bx_000_1100011;
@@ -120,29 +121,34 @@
          $is_addi = $dec_bits ==? 11'bx_000_0010011;
          $is_add = $dec_bits == 11'b0_000_0110011;
          
-         //Is Branch Taken or NOT
-         $taken_br = $is_b_instr ?
-                     (($is_beq && ($rf_rd_data1 == $rf_rd_data2)) ||
-                     ($is_bne && ($rf_rd_data1 != $rf_rd_data2)) ||
-                     ($is_blt && (($rf_rd_data1 < $rf_rd_data2)^($rf_rd_data1[31] != $rf_rd_data2[31]))) ||
-                     ($is_bge && (($rf_rd_data1 >= $rf_rd_data2)^($rf_rd_data1[31] != $rf_rd_data2[31]))) ||
-                     ($is_bltu && ($rf_rd_data1 < $rf_rd_data2)) ||
-                     ($is_bgeu && ($rf_rd_data1 >= $rf_rd_data2))):1'b0 ;
-         
-         $valid_taken_br = $valid && $taken_br;
-         
-         $br_tgt_pc[31:0] = $pc[31:0] + $imm[31:0];
          
          
       @3
-         //Adding conditional checking for valid.
-         $rf_wr_en = !$valid ? 1'b0 : ($rd == 5'b0) ? 1'b0 : $rd_valid;
-         ?$rf_wr_en
-            $rf_wr_index[4:0] = $rd[4:0];
-            
          //Register file Read configuration: Outputs
          $src1_value[31:0] = ((>>1$rd == $rs1) && (>>1$rf_wr_en)) ? >>1$result : $rf_rd_data1;
          $src2_value[31:0] = ((>>1$rd == $rs2) && (>>1$rf_wr_en)) ? >>1$result : $rf_rd_data2;
+         
+         //Is Branch Taken or NOT
+         $taken_br = $is_b_instr ?
+                     (($is_beq && ($src1_value == $src2_value)) ||
+                     ($is_bne && ($src1_value != $src2_value)) ||
+                     ($is_blt && (($src1_value < $src2_value)^($src1_value[31] != $src2_value[31]))) ||
+                     ($is_bge && (($src1_value >= $src2_value)^($src1_value[31] != $src2_value[31]))) ||
+                     ($is_bltu && ($src1_value < $src2_value)) ||
+                     ($is_bgeu && ($src1_value >= $src2_value))):1'b0 ;
+         
+         
+         //$valid_taken_br = $valid && $taken_br; Removed 3cycle cadence
+         $valid = (!(>>1$taken_br || >>2$taken_br));
+         $br_tgt_pc[31:0] = $pc[31:0] + $imm[31:0];
+         
+         //Adding conditional checking for valid.
+         //$rf_wr_en = !$valid ? 1'b0 : ($rd == 5'b0) ? 1'b0 : $rd_valid;
+         $rf_wr_en = ($rd == 5'b0) ? 1'b0 : $valid && $rd_valid;
+         ?$rf_wr_en
+            $rf_wr_index[4:0] = $rd[4:0];
+            
+
          
          //$src1_value[31:0] = $rf_rd_data1;
          //$src2_value[31:0] = $rf_rd_data2;
