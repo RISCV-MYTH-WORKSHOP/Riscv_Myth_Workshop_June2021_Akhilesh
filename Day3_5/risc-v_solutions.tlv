@@ -33,8 +33,10 @@
    m4_asm(BLT, r13, r12, 1111111111000) // If a3 is less than a2, branch to label named <loop>
    m4_asm(ADD, r10, r14, r0)            // Store final result to register a0 so that it can be read by main program
    
+   m4_asm(SW, r0, r10, 10000)           // Store the value of r10 to address
+   m4_asm(LW, r17, r0, 10000)           // Load value from the address
    // Optional:
-   // m4_asm(JAL, r7, 00000000000000000000) // Done. Jump to itself (infinite loop). (Up to 20-bit signed immediate plus implicit 0 bit (unlike JALR) provides byte address; last immediate bit should also be 0)
+   //m4_asm(JAL, r7, 00000000000000000000) // Done. Jump to itself (infinite loop). (Up to 20-bit signed immediate plus implicit 0 bit (unlike JALR) provides byte address; last immediate bit should also be 0)
    m4_define_hier(['M4_IMEM'], M4_NUM_INSTRS)
 
    |cpu
@@ -45,12 +47,15 @@
          //$valid = $reset ? 1'b0 : $start ? 1'b1 : >>3$valid;         
          
          $pc[31:0] = (>>1$reset) ? 0 :
-                     (>>3$taken_br) ? >>3$br_tgt_pc[31:0] : >>1$inc_pc;
-      @1
-         $inc_pc[31:0] = ($pc + 4);
+                     (>>3$valid_load) ? >>3$inc_pc :
+                     (>>3$taken_br) ? >>3$br_tgt_pc[31:0] :
+                     (>>3$valid_jump && >>3$is_jal) ? >>3$br_tgt_pc[31:0] :
+                     (>>3$valid_jump && >>3$is_jalr) ? >>3$jalr_tgt_pc[31:0] : >>1$inc_pc;
          
          $imem_rd_addr[M4_IMEM_INDEX_CNT-1:0] = $pc[M4_IMEM_INDEX_CNT+1:2];
          $imem_rd_en = !$reset;
+      @1
+         $inc_pc[31:0] = ($pc + 4);
          $instr[31:0] = $imem_rd_data[31:0];
          
          //Decoding Instruction Type: I,R,B,J,S,U
@@ -96,20 +101,9 @@
          $rd_valid = $is_i_instr || $is_r_instr || $is_u_instr || $is_j_instr ;
          ?$rd_valid
             $rd[4:0] = $instr[11:7];
-            
-      @2
+                  
          $dec_bits[10:0] = {$funct7[5],$funct3,$opcode};
          
-
-         //Register file Read configuration: Inputs
-         $rf_rd_en1 = $rs1_valid;
-         $rf_rd_en2 = $rs2_valid;
-         
-         //$rf_rd_index1[4:0] = (>>2$rd == $rs1) ? $rd : $rs1;
-         //$rf_rd_index2[4:0] = (>>2$rd == $rs2) ? $rd : $rs2;
-         
-         $rf_rd_index1[4:0] = $rs1;
-         $rf_rd_index2[4:0] = $rs2;
          
          //Decoding opcode,function different Inst
          $is_beq = $dec_bits ==? 11'bx_000_1100011;
@@ -134,27 +128,43 @@
          $is_sltiu = $dec_bits == 11'bx_011_0010011;
          $is_xori = $dec_bits == 11'bx_100_0010011;
          $is_ori = $dec_bits == 11'bx_110_0010011;
-         $is_andi = $dec_bits == 11'bx_111_0010011;
+         $is_andi = $dec_bits ==? 11'bx_111_0010011;
          $is_slli = $dec_bits == 11'b0_001_0010011;
          $is_srli = $dec_bits == 11'b0_011_0010011;
          $is_srai = $dec_bits == 11'b1_101_0010011;
          
          $is_lui = $dec_bits == 11'bx_xxx_0110111;
          $is_auipc = $dec_bits == 11'bx_xxx_0010111;
-         $is_jal = $dec_bits == 11'bx_xxx_1101111;
-         $is_jalr = $dec_bits == 11'bx_000_1100111;
-         $is_load = $dec_bits == 11'bx_xxx_0000011;
-         $is_sb = $dec_bits == 11'bx_000_0100011;
-         $is_sh = $dec_bits == 11'bx_001_0100011;
-         $is_sw = $dec_bits == 11'bx_010_0100011;
+         $is_jal = $dec_bits ==? 11'bx_xxx_1101111;
+         $is_jalr = $dec_bits ==? 11'bx_000_1100111;
+         $is_load = $dec_bits ==? 11'bx_xxx_0000011;
+         $is_sb = $dec_bits ==? 11'bx_000_0100011;
+         $is_sh = $dec_bits ==? 11'bx_001_0100011;
+         $is_sw = $dec_bits ==? 11'bx_010_0100011;
          $is_slti = $dec_bits ==? 11'bx_010_0010011;
+         $is_jump = $is_jal || $is_jalr;
+      @2   
+         //Register file Read configuration: Inputs
+         $rf_rd_en1 = $rs1_valid;
+         $rf_rd_en2 = $rs2_valid;
          
+         //$rf_rd_index1[4:0] = (>>2$rd == $rs1) ? $rd : $rs1;
+         //$rf_rd_index2[4:0] = (>>2$rd == $rs2) ? $rd : $rs2;
+         ?$rf_rd_en1
+            $rf_rd_index1[4:0] = $rs1;
+         ?$rf_rd_en2
+            $rf_rd_index2[4:0] = $rs2;
          
-      @3
+         //Branch to Target PC
+         $br_tgt_pc[31:0] = $pc[31:0] + $imm[31:0];
+         
+         //Jump to Target PC
+         $jalr_tgt_pc[31:0] = $src1_value + $imm;
+         
          //Register file Read configuration: Outputs
          $src1_value[31:0] = ((>>1$rd == $rs1) && (>>1$rf_wr_en)) ? >>1$result : $rf_rd_data1;
-         $src2_value[31:0] = ((>>1$rd == $rs2) && (>>1$rf_wr_en)) ? >>1$result : $rf_rd_data2;
-         
+         $src2_value[31:0] = ((>>1$rd == $rs2) && (>>1$rf_wr_en)) ? >>1$result : $rf_rd_data2;         
+      @3   
          //Is Branch Taken or NOT
          $taken_br = $is_b_instr ?
                      (($is_beq && ($src1_value == $src2_value)) ||
@@ -164,17 +174,26 @@
                      ($is_bltu && ($src1_value < $src2_value)) ||
                      ($is_bgeu && ($src1_value >= $src2_value))):1'b0 ;
          
+         $valid_taken_br = $taken_br && $valid;
          
-         //$valid_taken_br = $valid && $taken_br; Removed 3cycle cadence
-         $valid = (!(>>1$taken_br || >>2$taken_br));
-         $br_tgt_pc[31:0] = $pc[31:0] + $imm[31:0];
+         //Is Load Valid - to address store after load hazard
+         $valid_load = $valid && $is_load;
+         
+         //Is Jump Vallid
+         $valid_jump = $valid && $is_jump;
+         
+         //$valid_taken_br = $valid && $taken_br;-> Removed 3cycle cadence
+         //This ensures when the branch is taken dont take next 2 instructions.
+         $valid = (!(>>1$valid_taken_br || >>2$valid_taken_br || >>1$valid_load || >>2$valid_load || >>1$valid_jump || >>2$valid_jump));
          
          //Adding conditional checking for valid.
          //$rf_wr_en = !$valid ? 1'b0 : ($rd == 5'b0) ? 1'b0 : $rd_valid;
-         $rf_wr_en = ($rd == 5'b0) ? 1'b0 : $valid && $rd_valid;
+         $rf_wr_en = ($valid && $rd_valid && $rd != 5'b0) || >>2$valid_load;
          ?$rf_wr_en
-            $rf_wr_index[4:0] = $rd[4:0];
+            $rf_wr_index[4:0] = $valid ? $rd[4:0] : >>2$rd[4:0];
             
+         //Register File Write
+         $rf_wr_data[31:0] = $valid ? $result[31:0] : >>2$ld_data[31:0];            
          
          //$src1_value[31:0] = $rf_rd_data1;
          //$src2_value[31:0] = $rf_rd_data2;
@@ -207,14 +226,21 @@
                          $is_sra ? {{32{$src1_value[31]}},$src1_value} >> $src2_value[4:0] :
                          $is_slt ? ($src1_value[31] == $src2_value[31]) ? $sltu_rslt : {31'b0,$src1_value[31]} :
                          $is_slti ? ($src1_value[31] == $imm[31]) ? $sltiu_rslt : {31'b0,$src1_value[31]} :
+                         ($is_load || $is_s_instr) ? $src1_value + $imm :
                          32'bx;
          
-         //Register File Write
-         $rf_wr_data[31:0] = $result[31:0];
+      @4
+         $dmem_rd_en = $valid_load;
+         $dmem_wr_en = $valid && $is_s_instr;
+         $dmem_addr[3:0] = $result[5:2];
+         $dmem_wr_data[31:0] = $src2_value[31:0];
+         
+      @5
+         $ld_data[31:0] = $dmem_rd_data[31:0];
          
    // Assert these to end simulation (before Makerchip cycle limit).
    //*passed = *cyc_cnt > 100;
-   *passed = |cpu/xreg[10]>>5$value == {8'd45};
+   *passed = |cpu/xreg[17]>>5$value == {8'd45};
    *failed = 1'b0;
    
    // Macro instantiations for:
@@ -228,7 +254,7 @@
    |cpu
       m4+imem(@1)    // Args: (read stage)
       m4+rf(@2, @3)  // Args: (read stage, write stage) - if equal, no register bypass is required
-      //m4+dmem(@4)    // Args: (read/write stage)   
+      m4+dmem(@4)    // Args: (read/write stage)   
    m4+cpu_viz(@4)    // For visualisation, argument should be at least equal to the last stage of CPU logic. @4 would work for all labs.
 \SV
    endmodule
